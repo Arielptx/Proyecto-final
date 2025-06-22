@@ -1,0 +1,201 @@
+-- Eliminar y crear la base de datos
+DROP DATABASE IF EXISTS sistema_pedidos;
+CREATE DATABASE sistema_pedidos;
+USE sistema_pedidos;
+
+-- Crear tablas mejoradas
+CREATE TABLE usuarios (
+  id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+  nombres VARCHAR(50) NOT NULL,
+  apellido_paterno VARCHAR(50) NOT NULL,
+  apellido_materno VARCHAR(50),
+  ci VARCHAR(10) UNIQUE NOT NULL,
+  correo VARCHAR(100) UNIQUE NOT NULL,
+  contrasena_hash VARCHAR(255) NOT NULL,
+  salt VARCHAR(255),
+  rol ENUM('Estudiante', 'Encargado') NOT NULL,
+  intentos_fallidos INT DEFAULT 0,
+  ultimo_intento TIMESTAMP NULL,
+  reset_token VARCHAR(255) NULL,
+  reset_token_expira TIMESTAMP NULL,
+  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  activo BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE materiales (
+  id_material INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(30) NOT NULL,
+  cantidad INT NOT NULL DEFAULT 0,
+  minimo_inventario INT DEFAULT 5,
+  categoria ENUM('Equipo', 'Herramienta', 'Consumible', 'Otro') NOT NULL DEFAULT 'Otro',
+  descripcion VARCHAR(100),
+  fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE laboratorio (
+  id_laboratorio INT AUTO_INCREMENT PRIMARY KEY,
+  numero_laboratorio VARCHAR(10) UNIQUE NOT NULL,
+  cantidad_equipos INT NOT NULL,
+  capacidad_maxima INT,
+  disponibilidad ENUM('Disponible', 'Mantenimiento', 'Ocupado', 'No_disponible') NOT NULL DEFAULT 'Disponible',
+  descripcion VARCHAR(100),
+  fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE prestamos (
+  id_prestamo INT AUTO_INCREMENT PRIMARY KEY,
+  fecha_prestamo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  fecha_devolucion_esperada TIMESTAMP NULL,
+  estado ENUM('Pendiente', 'Aprobado', 'Rechazado', 'Devuelto', 'Vencido') NOT NULL DEFAULT 'Pendiente',
+  motivo_rechazo VARCHAR(255) NULL,
+  id_usuario INT NOT NULL,
+  id_material INT NULL,
+  id_laboratorio INT NULL,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  FOREIGN KEY (id_material) REFERENCES materiales(id_material) ON DELETE SET NULL,
+  FOREIGN KEY (id_laboratorio) REFERENCES laboratorio(id_laboratorio) ON DELETE SET NULL,
+  CHECK (id_material IS NOT NULL OR id_laboratorio IS NOT NULL)
+);
+
+CREATE TABLE devolucion (
+  id_devolucion INT AUTO_INCREMENT PRIMARY KEY,
+  fecha_devolucion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  observaciones VARCHAR(100),
+  estado_material VARCHAR(50),
+  id_prestamo INT NOT NULL,
+  FOREIGN KEY (id_prestamo) REFERENCES prestamos(id_prestamo) ON DELETE CASCADE
+);
+
+-- Tabla adicional para auditoría
+CREATE TABLE auditoria (
+  id_auditoria INT AUTO_INCREMENT PRIMARY KEY,
+  tabla_afectada VARCHAR(50) NOT NULL,
+  accion VARCHAR(20) NOT NULL,
+  id_registro INT NOT NULL,
+  datos_anteriores TEXT,
+  datos_nuevos TEXT,
+  id_usuario INT,
+  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
+);
+
+-- Insertar datos iniciales
+INSERT INTO usuarios (
+    nombres,
+    apellido_paterno,
+    apellido_materno,
+    ci,
+    correo,
+    contrasena_hash,
+    rol
+) VALUES (
+    'Juan',
+    'Del',
+    'Sistema',
+    '123987654',
+    'juan@correo.com',
+    '$2b$12$HmUrKINwXGkl9nI80ictJ.SIphkPerd7rSQtFg69SqVaZ2JBgqSTy', -- phan1234
+    'Encargado'
+);
+
+INSERT INTO materiales (nombre, cantidad, descripcion, categoria) VALUES
+('Multímetro', 10, 'Medición de voltaje, corriente y resistencia', 'Equipo'),
+('Cautín', 15, 'Para soldadura electrónica', 'Herramienta'),
+('Resistores', 200, 'Paquete de resistencias variadas', 'Consumible');
+
+INSERT INTO laboratorio (numero_laboratorio, cantidad_equipos, capacidad_maxima, disponibilidad) VALUES
+('LAB-101', 20, 25, 'Disponible'),
+('LAB-102', 18, 20, 'Disponible'),
+('LAB-201', 15, 15, 'Mantenimiento');
+
+-- Triggers para auditoría
+DELIMITER //
+
+CREATE TRIGGER audit_usuarios_insert
+AFTER INSERT ON usuarios
+FOR EACH ROW
+BEGIN
+    INSERT INTO auditoria (tabla_afectada, accion, id_registro, datos_nuevos, fecha)
+    VALUES ('usuarios', 'INSERT', NEW.id_usuario, 
+            CONCAT('Nuevo usuario: ', NEW.nombres, ' ', NEW.apellido_paterno, ' - Rol: ', NEW.rol),
+            NOW());
+END//
+
+CREATE TRIGGER audit_prestamos_update
+AFTER UPDATE ON prestamos
+FOR EACH ROW
+BEGIN
+    IF OLD.estado != NEW.estado THEN
+        INSERT INTO auditoria (tabla_afectada, accion, id_registro, datos_anteriores, datos_nuevos, fecha)
+        VALUES ('prestamos', 'UPDATE', NEW.id_prestamo, 
+                CONCAT('Estado anterior: ', OLD.estado),
+                CONCAT('Nuevo estado: ', NEW.estado),
+                NOW());
+    END IF;
+END//
+
+DELIMITER ;
+
+-- Procedimiento almacenado para registrar usuarios con hash seguro
+DELIMITER //
+
+CREATE PROCEDURE registrar_usuario_seguro(
+    IN p_nombres VARCHAR(50),
+    IN p_apellido_paterno VARCHAR(50),
+    IN p_apellido_materno VARCHAR(50),
+    IN p_ci VARCHAR(10),
+    IN p_correo VARCHAR(100),
+    IN p_contrasena_plana VARCHAR(255),
+    IN p_rol ENUM('Estudiante', 'Encargado')
+)
+BEGIN
+    DECLARE v_salt VARCHAR(255);
+    DECLARE v_hash VARCHAR(255);
+    
+    -- Generar un salt único
+    SET v_salt = SUBSTRING(MD5(RAND()), 1, 16);
+    
+    -- Generar el hash con el salt (usando SHA2 como ejemplo, en producción usaría bcrypt)
+    SET v_hash = SHA2(CONCAT(p_contrasena_plana, v_salt), 256);
+    
+    -- Insertar el usuario
+    INSERT INTO usuarios (
+        nombres,
+        apellido_paterno,
+        apellido_materno,
+        ci,
+        correo,
+        contrasena_hash,
+        salt,
+        rol
+    ) VALUES (
+        p_nombres,
+        p_apellido_paterno,
+        p_apellido_materno,
+        p_ci,
+        p_correo,
+        v_hash,
+        v_salt,
+        p_rol
+    );
+END//
+
+DELIMITER ;
+
+-- Vista para préstamos activos
+CREATE VIEW vista_prestamos_activos AS
+SELECT 
+    p.id_prestamo,
+    CONCAT(u.nombres, ' ', u.apellido_paterno) AS usuario,
+    IFNULL(m.nombre, l.numero_laboratorio) AS recurso,
+    p.fecha_prestamo,
+    p.fecha_devolucion_esperada,
+    p.estado
+FROM prestamos p
+JOIN usuarios u ON p.id_usuario = u.id_usuario
+LEFT JOIN materiales m ON p.id_material = m.id_material
+LEFT JOIN laboratorio l ON p.id_laboratorio = l.id_laboratorio
+WHERE p.estado IN ('Pendiente', 'Aprobado');
+
+-- Mostrar usuarios para verificar
+SELECT * FROM usuarios;
