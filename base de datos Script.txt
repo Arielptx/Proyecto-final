@@ -1,0 +1,80 @@
+-- Eliminar y crear la base de datos
+DROP DATABASE IF EXISTS sistema_pedidos;
+CREATE DATABASE sistema_pedidos;
+USE sistema_pedidos;
+
+-- Crear tablas
+CREATE TABLE usuarios (
+  id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+  nombres VARCHAR(50) NOT NULL,
+  apellido_paterno VARCHAR(50) NOT NULL,
+  apellido_materno VARCHAR(50),
+  ci VARCHAR(10),
+  correo VARCHAR(100),
+  contraseña VARCHAR(255),
+  rol ENUM('Estudiante', 'Encargado')
+);
+
+CREATE TABLE materiales (
+  id_material INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(30) NOT NULL,
+  cantidad INT,
+  descripcion VARCHAR(100)
+);
+
+CREATE TABLE laboratorio (
+  id_laboratorio INT AUTO_INCREMENT PRIMARY KEY,
+  numero_laboratorio VARCHAR(10),
+  cantidad_equipos INT,
+  disponibilidad ENUM('Disponible', 'No_disponible')
+);
+
+CREATE TABLE prestamos (
+  id_prestamo INT AUTO_INCREMENT PRIMARY KEY,
+  fecha_prestamo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  estado VARCHAR(15),
+  id_usuario INT,
+  id_material INT,
+  id_laboratorio INT,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  FOREIGN KEY (id_material) REFERENCES materiales(id_material) ON DELETE CASCADE,
+  FOREIGN KEY (id_laboratorio) REFERENCES laboratorio(id_laboratorio) ON DELETE CASCADE
+);
+
+CREATE TABLE devolucion (
+  id_devolucion INT AUTO_INCREMENT PRIMARY KEY,
+  fecha_devolucion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  observaciones VARCHAR(100),
+  id_prestamo INT,
+  FOREIGN KEY (id_prestamo) REFERENCES prestamos(id_prestamo) ON DELETE CASCADE
+);
+
+-- Insertar materiales
+INSERT INTO materiales (nombre, cantidad, descripcion) VALUES
+('sin material',0,'sin material');
+-- Insertar laboratorios
+INSERT INTO laboratorio (numero_laboratorio, cantidad_equipos, disponibilidad) VALUES
+('sin lab',0,'No_disponible');
+
+INSERT INTO usuarios (
+    nombres,
+    apellido_paterno,
+    apellido_materno,
+    ci,
+    correo,
+    contraseña,
+    rol
+) VALUES (
+    'juan',
+    'Del',
+    'Sistema',
+    '123987654',
+    'juan@correo.com',
+    '$2b$12$HmUrKINwXGkl9nI80ictJ.SIphkPerd7rSQtFg69SqVaZ2JBgqSTy',
+    'Encargado'
+);
+
+select * from usuarios;
+
+-- logear con juan@correo.com
+-- contraseña phan1234
